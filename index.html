@@ -155,34 +155,73 @@ function buildChips(){
 var reqId=0;
 function setStatus(t,isErr){var s=$("status");s.textContent=t;s.className=isErr?"err":""}
 
-function loadWeather(){
-  var c=CITIES[cur],id=++reqId;
-  setStatus("天気を更新中…",false);
+function getJSON(url,ms){
+  var ctl=new AbortController(),t=setTimeout(function(){ctl.abort()},ms);
+  return fetch(url,{signal:ctl.signal}).then(function(r){clearTimeout(t);if(!r.ok)throw new Error("http "+r.status);return r.json()},function(e){clearTimeout(t);throw e});
+}
+function dayLabel(d,i){return i===0?"今日":new Intl.DateTimeFormat("ja-JP",{timeZone:"UTC",weekday:"short"}).format(new Date(d+"T00:00:00Z"))}
+
+function fromOpenMeteo(c){
   var url="https://api.open-meteo.com/v1/forecast?latitude="+c.lat+"&longitude="+c.lon+
     "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m"+
     "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"+
     "&timezone="+encodeURIComponent(c.tz)+"&forecast_days=4";
-  fetch(url).then(function(r){if(!r.ok)throw new Error("http "+r.status);return r.json()}).then(function(j){
-    if(id!==reqId)return;
+  return getJSON(url,8000).then(function(j){
     var k=j.current,w=wc(k.weather_code);
-    $("temp").textContent=Math.round(k.temperature_2m)+"℃";
-    $("phrase").textContent=w[0]+" "+w[1];
-    $("feel").textContent=Math.round(k.apparent_temperature)+"℃";
-    $("hum").textContent=Math.round(k.relative_humidity_2m)+"%";
-    $("wind").textContent=Math.round(k.wind_speed_10m)+" km/h";
-    var box=$("days");box.textContent="";
-    j.daily.time.forEach(function(d,i){
-      var cell=document.createElement("div");cell.className="day";
-      var label=i===0?"今日":new Intl.DateTimeFormat("ja-JP",{timeZone:"UTC",weekday:"short"}).format(new Date(d+"T00:00:00Z"));
-      var ww=wc(j.daily.weather_code[i]);
-      var parts=[["d",label],["i",ww[0]],["t",Math.round(j.daily.temperature_2m_max[i])+"° / "+Math.round(j.daily.temperature_2m_min[i])+"°"],["p","降水 "+(j.daily.precipitation_probability_max[i]==null?"--":j.daily.precipitation_probability_max[i])+"%"]];
-      parts.forEach(function(p){var e=document.createElement("div");e.className=p[0];e.textContent=p[1];cell.appendChild(e)});
-      box.appendChild(cell);
-    });
-    setStatus("更新: "+fmt(c.tz,{hour:"2-digit",minute:"2-digit",hour12:false})+"（現地時間・Open-Meteo）",false);
+    return {src:"Open-Meteo",temp:k.temperature_2m,feel:k.apparent_temperature,hum:k.relative_humidity_2m,wind:k.wind_speed_10m,icon:w[0],text:w[1],
+      days:j.daily.time.map(function(d,i){var ww=wc(j.daily.weather_code[i]);return {label:dayLabel(d,i),icon:ww[0],max:j.daily.temperature_2m_max[i],min:j.daily.temperature_2m_min[i],pop:j.daily.precipitation_probability_max[i]}})};
+  });
+}
+
+function wwo(code){
+  code=parseInt(code,10);
+  if(code===113)return["☀️","晴れ"];
+  if(code===116)return["⛅","晴れ時々くもり"];
+  if(code===119||code===122)return["☁️","くもり"];
+  if(code===143||code===248||code===260)return["🌫️","霧"];
+  if([176,263,266,293,296,353].indexOf(code)>=0)return["🌦️","小雨"];
+  if([299,302,305,308,356,359].indexOf(code)>=0)return["🌧️","雨"];
+  if([200,386,389,392,395].indexOf(code)>=0)return["⛈️","雷雨"];
+  if([179,323,326,329,332,335,338,368,371].indexOf(code)>=0)return["🌨️","雪"];
+  return["🌧️","みぞれ・凍雨"];
+}
+function fromWttr(c){
+  return getJSON("https://wttr.in/"+c.lat+","+c.lon+"?format=j1",8000).then(function(j){
+    var k=j.current_condition[0],w=wwo(k.weatherCode);
+    return {src:"wttr.in",temp:+k.temp_C,feel:+k.FeelsLikeC,hum:+k.humidity,wind:+k.windspeedKmph,icon:w[0],text:w[1],
+      days:j.weather.map(function(d,i){
+        var mid=d.hourly[Math.min(4,d.hourly.length-1)],ww=wwo(mid.weatherCode);
+        var pop=Math.max.apply(null,d.hourly.map(function(h){return +h.chanceofrain||0}));
+        return {label:dayLabel(d.date,i),icon:ww[0],max:+d.maxtempC,min:+d.mintempC,pop:pop};
+      })};
+  });
+}
+
+function render(data,c){
+  $("temp").textContent=Math.round(data.temp)+"℃";
+  $("phrase").textContent=data.icon+" "+data.text;
+  $("feel").textContent=Math.round(data.feel)+"℃";
+  $("hum").textContent=Math.round(data.hum)+"%";
+  $("wind").textContent=Math.round(data.wind)+" km/h";
+  var box=$("days");box.textContent="";
+  data.days.forEach(function(d){
+    var cell=document.createElement("div");cell.className="day";
+    [["d",d.label],["i",d.icon],["t",Math.round(d.max)+"° / "+Math.round(d.min)+"°"],["p","降水 "+(d.pop==null?"--":d.pop)+"%"]].forEach(function(p){
+      var e=document.createElement("div");e.className=p[0];e.textContent=p[1];cell.appendChild(e)});
+    box.appendChild(cell);
+  });
+  setStatus("更新: "+fmt(c.tz,{hour:"2-digit",minute:"2-digit",hour12:false})+"（現地時間・"+data.src+"）",false);
+}
+
+function loadWeather(){
+  var c=CITIES[cur],id=++reqId;
+  setStatus("天気を更新中…（最大16秒）",false);
+  fromOpenMeteo(c).catch(function(){return fromWttr(c)}).then(function(data){
+    if(id!==reqId)return;
+    render(data,c);
   }).catch(function(){
     if(id!==reqId)return;
-    setStatus("天気を取得できませんでした。通信を確認して「天気を更新」を押してね",true);
+    setStatus("天気を取得できませんでした。天気サービスに接続できない状態です。通信環境（VPN・プライベートDNS・Wi-Fi）を確認して「天気を更新」を押してね",true);
   });
 }
 
