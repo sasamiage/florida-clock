@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="フロリダ時計">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b3a4a">
+<title>フロリダ時計</title>
+<style>
+:root{
+  --sky-top:#7fd0e8; --sky-bottom:#ffe2b8; --ink:#0b2f3d; --ink-sub:#35606f; --line:rgba(11,47,61,.22); --accent:#e8553a;
+}
+:root[data-phase="night"]{
+  --sky-top:#08162e; --sky-bottom:#1d4a6b; --ink:#eaf6ff; --ink-sub:#a9c7da; --line:rgba(234,246,255,.25); --accent:#ff9a6b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%}
+body{
+  background:linear-gradient(180deg,var(--sky-top),var(--sky-bottom)) fixed;
+  color:var(--ink);
+  font-family:-apple-system,"Hiragino Sans","Noto Sans JP","Yu Gothic",sans-serif;
+  padding:calc(env(safe-area-inset-top,0px) + 22px) 18px calc(env(safe-area-inset-bottom,0px) + 28px);
+  transition:background .6s;
+}
+main{max-width:480px;margin:0 auto}
+.city-name{font-size:1rem;color:var(--ink-sub);margin:0}
+.date{font-size:1.2rem;margin:6px 0 0}
+.clock{
+  font-size:clamp(3.4rem,17vw,5.2rem);font-weight:700;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;line-height:1.05;margin:2px 0 0;
+}
+.tz{color:var(--ink-sub);font-size:.9rem;margin:4px 0 0}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:18px 0 6px;margin:0 -18px;padding-left:18px;padding-right:18px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chips button{
+  flex:none;font:inherit;font-size:.9rem;color:var(--ink);background:transparent;
+  border:1.5px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer;
+}
+.chips button[aria-pressed="true"]{background:var(--ink);color:var(--sky-bottom);border-color:var(--ink)}
+:root[data-phase="night"] .chips button[aria-pressed="true"]{color:#08162e}
+.chips button:focus-visible,.refresh:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+section{border-top:1.5px solid var(--line);margin-top:16px;padding-top:16px}
+.now{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.temp{font-size:3rem;font-weight:700;color:var(--accent);line-height:1}
+.phrase{font-size:1.15rem}
+dl{display:grid;grid-template-columns:auto 1fr;gap:6px 18px;margin:14px 0 0}
+dt{color:var(--ink-sub)}
+dd{margin:0;font-variant-numeric:tabular-nums}
+.days{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:4px}
+.day{text-align:center;padding:6px 2px;border-left:1.5px solid var(--line)}
+.day:first-child{border-left:0}
+.day .d{font-size:.85rem;color:var(--ink-sub)}
+.day .i{font-size:1.6rem;margin:2px 0}
+.day .t{font-size:.9rem;font-variant-numeric:tabular-nums}
+.day .p{font-size:.8rem;color:var(--ink-sub)}
+.japan{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.status{color:var(--ink-sub);font-size:.85rem;margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.refresh{font:inherit;font-size:.85rem;color:var(--ink);background:transparent;border:1.5px solid var(--line);border-radius:999px;padding:4px 12px;cursor:pointer}
+.err{color:var(--accent)}
+</style>
+</head>
+<body>
+<main>
+  <p class="city-name" id="cityName">フロリダ州</p>
+  <p class="date" id="date">--</p>
+  <p class="clock" id="clock">--:--:--</p>
+  <p class="tz" id="tz"></p>
+
+  <div class="chips" id="chips" role="group" aria-label="都市を選ぶ"></div>
+
+  <section aria-live="polite">
+    <div class="now"><span class="temp" id="temp">--</span><span class="phrase" id="phrase">天気を読み込み中…</span></div>
+    <dl>
+      <dt>体感</dt><dd id="feel">--</dd>
+      <dt>湿度</dt><dd id="hum">--</dd>
+      <dt>風</dt><dd id="wind">--</dd>
+    </dl>
+  </section>
+
+  <section>
+    <div class="days" id="days"></div>
+  </section>
+
+  <section>
+    <div class="japan"><span>日本（東北）</span><span id="jp">--</span></div>
+    <div class="tz" id="diff"></div>
+    <div class="status"><span id="status"></span><button class="refresh" id="refresh" type="button">天気を更新</button></div>
+  </section>
+</main>
+
+<script>
+var CITIES=[
+  {n:"マイアミ",lat:25.77,lon:-80.19,tz:"America/New_York"},
+  {n:"オーランド",lat:28.54,lon:-81.38,tz:"America/New_York"},
+  {n:"タンパ",lat:27.95,lon:-82.46,tz:"America/New_York"},
+  {n:"ジャクソンビル",lat:30.33,lon:-81.66,tz:"America/New_York"},
+  {n:"タラハシー",lat:30.44,lon:-84.28,tz:"America/New_York"},
+  {n:"キーウェスト",lat:24.56,lon:-81.78,tz:"America/New_York"},
+  {n:"ペンサコーラ",lat:30.42,lon:-87.22,tz:"America/Chicago"}
+];
+var cur=0;
+try{var s=parseInt(localStorage.getItem("fl-city"),10);if(s>=0&&s<CITIES.length)cur=s}catch(e){}
+
+var $=function(id){return document.getElementById(id)};
+function fmt(tz,opts){return new Intl.DateTimeFormat("ja-JP",Object.assign({timeZone:tz},opts)).format(new Date())}
+
+function wc(c){
+  if(c===0)return["☀️","快晴"];
+  if(c===1)return["🌤️","晴れ"];
+  if(c===2)return["⛅","晴れ時々くもり"];
+  if(c===3)return["☁️","くもり"];
+  if(c===45||c===48)return["🌫️","霧"];
+  if(c>=51&&c<=57)return["🌦️","霧雨"];
+  if(c>=61&&c<=67)return["🌧️","雨"];
+  if(c>=71&&c<=77||c===85||c===86)return["🌨️","雪"];
+  if(c>=80&&c<=82)return["🌦️","にわか雨"];
+  if(c===95)return["⛈️","雷雨"];
+  if(c===96||c===99)return["⛈️","雷雨（ひょう）"];
+  return["🌡️","不明"];
+}
+
+function offsetMs(tz,now){
+  var p=new Intl.DateTimeFormat("en-US",{timeZone:tz,hour12:false,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"}).formatToParts(now),o={};
+  p.forEach(function(x){o[x.type]=x.value});
+  return Date.UTC(o.year,o.month-1,o.day,o.hour%24,o.minute,o.second)-now.getTime();
+}
+
+function tick(){
+  var c=CITIES[cur],now=new Date();
+  $("cityName").textContent=c.n+"（フロリダ州）";
+  $("date").textContent=fmt(c.tz,{year:"numeric",month:"long",day:"numeric",weekday:"long"});
+  $("clock").textContent=fmt(c.tz,{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false});
+  var name=new Intl.DateTimeFormat("en-US",{timeZone:c.tz,timeZoneName:"short"}).format(now).split(" ").pop();
+  $("tz").textContent=name+"（"+(c.tz==="America/New_York"?"東部時間":"中部時間")+"）";
+  $("jp").textContent=fmt("Asia/Tokyo",{month:"numeric",day:"numeric",weekday:"short",hour:"2-digit",minute:"2-digit",hour12:false});
+  var h=Math.round((offsetMs("Asia/Tokyo",now)-offsetMs(c.tz,now))/3600000);
+  $("diff").textContent="日本は"+c.n+"より"+h+"時間進んでいます";
+  var hour=parseInt(new Intl.DateTimeFormat("en-US",{timeZone:c.tz,hour:"numeric",hour12:false}).format(now),10)%24;
+  document.documentElement.setAttribute("data-phase",(hour>=6&&hour<18)?"day":"night");
+}
+
+function buildChips(){
+  var box=$("chips");box.textContent="";
+  CITIES.forEach(function(c,i){
+    var b=document.createElement("button");
+    b.type="button";b.textContent=c.n;b.setAttribute("aria-pressed",i===cur?"true":"false");
+    b.onclick=function(){cur=i;try{localStorage.setItem("fl-city",String(i))}catch(e){}buildChips();tick();loadWeather()};
+    box.appendChild(b);
+  });
+}
+
+var reqId=0;
+function setStatus(t,isErr){var s=$("status");s.textContent=t;s.className=isErr?"err":""}
+
+function loadWeather(){
+  var c=CITIES[cur],id=++reqId;
+  setStatus("天気を更新中…",false);
+  var url="https://api.open-meteo.com/v1/forecast?latitude="+c.lat+"&longitude="+c.lon+
+    "&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m"+
+    "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max"+
+    "&timezone="+encodeURIComponent(c.tz)+"&forecast_days=4";
+  fetch(url).then(function(r){if(!r.ok)throw new Error("http "+r.status);return r.json()}).then(function(j){
+    if(id!==reqId)return;
+    var k=j.current,w=wc(k.weather_code);
+    $("temp").textContent=Math.round(k.temperature_2m)+"℃";
+    $("phrase").textContent=w[0]+" "+w[1];
+    $("feel").textContent=Math.round(k.apparent_temperature)+"℃";
+    $("hum").textContent=Math.round(k.relative_humidity_2m)+"%";
+    $("wind").textContent=Math.round(k.wind_speed_10m)+" km/h";
+    var box=$("days");box.textContent="";
+    j.daily.time.forEach(function(d,i){
+      var cell=document.createElement("div");cell.className="day";
+      var label=i===0?"今日":new Intl.DateTimeFormat("ja-JP",{timeZone:"UTC",weekday:"short"}).format(new Date(d+"T00:00:00Z"));
+      var ww=wc(j.daily.weather_code[i]);
+      var parts=[["d",label],["i",ww[0]],["t",Math.round(j.daily.temperature_2m_max[i])+"° / "+Math.round(j.daily.temperature_2m_min[i])+"°"],["p","降水 "+(j.daily.precipitation_probability_max[i]==null?"--":j.daily.precipitation_probability_max[i])+"%"]];
+      parts.forEach(function(p){var e=document.createElement("div");e.className=p[0];e.textContent=p[1];cell.appendChild(e)});
+      box.appendChild(cell);
+    });
+    setStatus("更新: "+fmt(c.tz,{hour:"2-digit",minute:"2-digit",hour12:false})+"（現地時間・Open-Meteo）",false);
+  }).catch(function(){
+    if(id!==reqId)return;
+    setStatus("天気を取得できませんでした。通信を確認して「天気を更新」を押してね",true);
+  });
+}
+
+$("refresh").onclick=loadWeather;
+document.addEventListener("visibilitychange",function(){if(!document.hidden)loadWeather()});
+buildChips();tick();setInterval(tick,1000);loadWeather();setInterval(loadWeather,600000);
+</script>
+</body>
+</html>
